@@ -5,109 +5,54 @@
 #include <errno.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-#include "ntpvm.h"
+#include "helper.h"
+#include "tasks.h"
 
 #define MAX_LINE_SIZE 100
 #define TERMINATE_STRING "$\n"
+#define NUM_THREADS 1
+// #define NUM_THREADS 2
 
 static char *typename[] = {"Start Task", "Data", "Broadcast", "Done", "Terminate", "Barrier"};
 
 int getpacket(int, int *, int *, packet_t *, int *, unsigned char *);
 int putpacket(int, int, int, packet_t, int, unsigned char *);
-int makeargv(const char *s, const char *delimiters, char ***argvp);
+void *inputFunc(void *param);
+void *outputFunc(void *param);
 
 int main(void)
 {
-    unsigned char buf[MAX_PACK_SIZE];
-    int compid, taskid, tdatalen;
-    packet_t type;
-    int tin, tout;
-
-    char delim[] = " \t\n"; // delimeters
+    task_array tasks;
     int i; // iterator
-    char **myargv; // argument array
-    int numtokens; // number of tokens
+    pthread_t input_thread, output_thread;
+    pthread_t threads[NUM_THREADS]; // array of threads to be joined upon
+    int threadCreationResult;
 
-    pid_t child;
-    int mypipefd[2];
-    
-    tin = STDIN_FILENO;
-    tout = STDOUT_FILENO;
-    
-    while (getpacket(tin, &compid, &taskid, &type, &tdatalen, buf) != -1)
+    // initialize tasks array object
+    memset(tasks.tasks, 0, sizeof(tasks.tasks));
+    tasks.numOfTasks = 0;
+
+    // 2nd argument is NULL indicating to create thread with default attributes
+    // 4th argument is NULL indicating no arguments to the inputFunc function
+    if (threadCreationResult = pthread_create(&input_thread, NULL, inputFunc, &tasks))
     {
-        fprintf(stderr, "\n\n%d %d %d %d %s\n\n", compid, taskid, type, tdatalen, buf);
-
-        /* create pipe first */
-        if (pipe(mypipefd) < 0)
-        {
-            fprintf(stderr, "%s", strerror(errno));
-            return -1;
-        }
-        /* pipe has been created */
-        child = fork();
-        if (child < 0)
-        {
-            fprintf(stderr, "%s", strerror(errno));
-            return -1;
-        }
-        else if (child > 0)
-        {
-            wait(NULL); // wait for child
-
-            char concat_str[MAX_PACK_SIZE];
-
-            close(mypipefd[1]); // cloade write end
-            read(mypipefd[0], concat_str, MAX_PACK_SIZE); // read from pipe
-            // printf("Concatenated string %s\n", concat_str);
-            close(mypipefd[0]);
-
-            type = 1; // 1 = DATA
-            tdatalen = strlen(concat_str);
-            *buf = 0;
-            strcpy(buf, concat_str);
-            if (putpacket(tout, compid, taskid, type, tdatalen, buf) == -1) // 4th argument (1 = DATA)
-                break;
-        }
-        else
-        {
-            /* child code */
-            /* redirect stdin & stdout to pipe */
-            dup2(mypipefd[1], 1);
-            dup2(mypipefd[0], 0);
-
-            close(mypipefd[0]);
-            close(mypipefd[1]);
-
-            /* now exec the new image */
-            // we make the the argument array
-            if ((numtokens = makeargv(buf, delim, &myargv)) == -1)
-            {
-                fprintf(stderr, "Failed to construct an argument array for %s\n", buf);
-                return -1;
-            }
-            // print argument array
-            myargv[numtokens-1] = NULL; // make $ = null
-            // printf("The argument array contains:\n");
-            // for (i = 0; i < numtokens; i++)
-            //     printf("%d: %s\n", i, myargv[i]);
-            
-            // a null terminated array of character pointers
-            // char *args[] = {"printenv", NULL};
-            fprintf(stderr, "Executing...\n\n");
-            execvp(myargv[0], myargv);
-        }
-    }
-
-    // close pipe read & write ends
-    close(mypipefd[0]);
-    close(mypipefd[1]);
-
-    type = 3; // 3 = DONE
-    tdatalen = 0;
-    *buf = 0;
-    if (putpacket(tout, compid, taskid, type, tdatalen, buf) == -1)
+        fprintf(stderr, "%s", strerror(errno));
         return -1;
+    }
+    // if (threadCreationResult = pthread_create(&output_thread, NULL, outputFunc, NULL))
+    // {
+    //     fprintf(stderr, "%s", strerror(errno));
+    //     return -1;
+    // }
+
+    threads[0] = input_thread;
+    // threads[1] = output_thread;
+
+    // block until all threads complete
+	for (i = 0; i < NUM_THREADS; i++)
+	{
+		pthread_join(threads[i], NULL); // wait for thread to execute
+	}
     
     return 0;
 }
@@ -166,10 +111,10 @@ int getpacket(int fd, int *compidp, int *taskidp, packet_t *typep, int *lenp, un
     }
     fgetc(fptr); // consume \n
 
-    if (*typep != 0)
+    if ((*typep != 0) && (*typep != 1) && *typep != 3)
     {
-        fprintf(stderr, "Got invalid packet! (%d), NEWTASK is allowed!\n", *typep);
-        return -1;
+        fprintf(stderr, "Got invalid packet! (%d)\n", *typep);
+        return 1;
     }
 
     pack.length = 0;
@@ -262,57 +207,209 @@ int putpacket(int fd, int compid, int taskid, packet_t type, int len, unsigned c
     return 0;
 }
 
-int makeargv(const char *s, const char *delimiters, char ***argvp)
+void *inputFunc(void *param)
 {
-    int error; // for error handling
+    task_array *tasksarray;
+    tasksarray = (task_array *) param;
+
+    unsigned char buf[MAX_PACK_SIZE];
+    int compid, taskid, tdatalen, result;
+    packet_t type;
+    int tin, tout;
+    int error;
+
+    char delim[] = " \t\n"; // delimeters
     int i; // iterator
+    char **myargv; // argument array
     int numtokens; // number of tokens
-    const char *snew; // temporary string representing original string except for the starting delimeters
-    char *t; // temporary string to tokenize
 
-    // arguments should be given
-    if ((s == NULL) || (delimiters == NULL) || (argvp == NULL))
+    /***** CHILD & PIPE *****/
+    pid_t childpid;
+    int mypipefd[2];
+
+    int inputPipe[2];
+    int outputPipe[2];
+    /***** CHILD & PIPE *****/
+
+    tin = STDIN_FILENO;
+    tout = STDOUT_FILENO;
+
+    while ((result = getpacket(tin, &compid, &taskid, &type, &tdatalen, buf)) != -1)
     {
-        errno = EINVAL;
-        return -1;
+        fprintf(stderr, "\n\n%d %d %d %d %s\n\n", compid, taskid, type, tdatalen, buf);
+
+        // 1 is returned by getpacket when BROADCAST, BARRIER or TERMINATE are received
+        if (result == 1)
+            continue;
+
+        /* 0 => NEWTASK */
+        if (type == 0)
+        {
+            /* If a child task is already executing, discard the packet and output an error message */
+            if (tasksarray->numOfTasks >= 1)
+            {
+                fprintf(stderr, "\n\n***** Maximum number of tasks reached! *****\n\n");
+                continue;
+            }
+            /* if no child task exists, create two pipes to handle the task's input and output
+            Update the tasks object, and fork a child. The child should redirect its standard input
+            and output to the pipes and use the makeargv function of Program 2.2 to construct the
+            argument array before calling execvp to execute the command given in the packet
+            Create a detached output thread by calling pthread_create. Pass a key for the tasks
+            entry of this task as an argument to the output thread. The key is just the index of the
+            appropriate tasks array entry */
+            else
+            {
+                int taskind;
+                /* create input pipe */
+                if (pipe(inputPipe) < 0)
+                {
+                    fprintf(stderr, "%s", strerror(errno));
+                    return NULL;
+                }
+                /* create output pipe */
+                if (pipe(outputPipe) < 0)
+                {
+                    fprintf(stderr, "%s", strerror(errno));
+                    return NULL;
+                }
+                // add new task in tasks array
+                // this call is to be changed, first we have to create 2 pipes and then pass them to addTask
+                // if ((taskind = addTask(tasksarray, compid, taskid, mypipefd[1], mypipefd[0])) == -1)
+                if ((taskind = addTask(tasksarray, compid, taskid, inputPipe[1], outputPipe[0])) == -1)
+                {
+                    fprintf(stderr, "\nError in adding a new task!\n");
+                    return NULL;
+                }
+
+                // after creating the output thread, pass the task object returned by the addTask to the thread
+                // so that it can update the output thread id attribute of the task object
+
+                /* pipes have been created */
+                childpid = fork();
+                if (childpid < 0)
+                {
+                    fprintf(stderr, "%s", strerror(errno));
+                    return NULL;
+                }
+                else if (childpid > 0)
+                {
+                    wait(NULL); // wait for child
+                    tasksarray->tasks[taskind]->taskpid = childpid; // set child task PID
+                    // close unneeded pipes
+                    close(inputPipe[0]);
+                    close(outputPipe[1]);
+
+                    char concat_str[MAX_PACK_SIZE];
+
+                    // close(mypipefd[1]); // cloade write end
+                    // read(mypipefd[0], concat_str, MAX_PACK_SIZE); // read from pipe
+                    // // printf("Concatenated string %s\n", concat_str);
+                    // close(mypipefd[0]);
+
+                    type = 1; // 1 => DATA
+                    tdatalen = strlen(concat_str);
+                    *buf = 0;
+                    strcpy(buf, concat_str);
+                    if (putpacket(tout, compid, taskid, type, tdatalen, buf) == -1) // 4th argument (1 = DATA)
+                        break;
+                }
+                else
+                {
+                    /* child code */
+                    /* redirect stdin & stdout to pipe */
+                    // dup2(mypipefd[1], 1);
+                    // dup2(mypipefd[0], 0);
+
+                    dup2(inputPipe[1], 0);
+                    dup2(outputPipe[0], 1);
+
+                    // close(mypipefd[0]);
+                    // close(mypipefd[1]);
+
+                    /* now exec the new image */
+                    // we make the the argument array
+                    if ((numtokens = makeargv(buf, delim, &myargv)) == -1)
+                    {
+                        fprintf(stderr, "Failed to construct an argument array for %s\n", buf);
+                        return NULL;
+                    }
+                    // print argument array
+                    myargv[numtokens-1] = NULL; // make $ = null
+                    // printf("The argument array contains:\n");
+                    // for (i = 0; i < numtokens; i++)
+                    //     printf("%d: %s\n", i, myargv[i]);
+                    
+                    // a null terminated array of character pointers
+                    // char *args[] = {"printenv", NULL};
+                    fprintf(stderr, "Executing...\n\n");
+                    execvp(myargv[0], myargv);
+                }
+            }
+        }
+        /* 1 => DATA */
+        else if (type == 1)
+        {
+            /* check the task in tasks array */
+            // result will have the index if found in tasks array
+            result = checkTask(tasksarray, compid, taskid); // check the task in tasks array
+            if ((result == -1) || (result == -2))
+            {
+                fprintf(stderr, "\n\nComputation Id and Task Id don't match or endinput is true!\n\n");
+                continue;
+            }
+            else
+            {
+                /* copy the data portion to writefd */
+                // if ((error = r_write(mypipefd[1], buf, tdatalen)) == -1)
+                if ((error = r_write(inputPipe[1], buf, tdatalen)) == -1)
+                {
+                    fprintf(stderr, "%s", strerror(errno));
+                    break; // break the loop and exit
+                }
+
+                /* Update the recvpackets and recvbytes members of the appropriate task entry of the tasks object */
+                tasksarray->tasks[result]->recvpackets += 1;
+                tasksarray->tasks[result]->recvbytes += tdatalen;
+            }
+        }
+        /* 3 => DONE */
+        else if (type == 3)
+        {
+            /* check the task in tasks array */
+            // result will have the index if found in tasks array
+            result = checkTask(tasksarray, compid, taskid);
+            if (result == -1)
+            {
+                fprintf(stderr, "\n\nComputation Id and Task Id don't match!\n\n");
+                continue;
+            }
+            else
+            {
+                /* close the writefd descriptor if it is still open */
+                // while (((error = close(mypipefd[1])) == -1) && (errno == EINTR));
+                while (((error = close(inputPipe[1])) == -1) && (errno == EINTR));
+                // if (error== -1)
+                // {
+                //     ;
+                // }
+                /* set the endinput member for this task entry */
+                tasksarray->tasks[result]->endinput = 1;
+                tasksarray->tasks[result] = NULL;
+            }
+        }
     }
 
-    // empty the array
-    *argvp = NULL;
-    snew = s + strspn(s, delimiters); /* snew is real start of string - removes the leading delimeters */
+    // close pipe read & write ends
+    // close(mypipefd[0]);
+    // close(mypipefd[1]);
 
-    // allocate space for the 'to be' tokenized string
-    if ((t = malloc(strlen(snew) + 1)) == NULL)
-        return -1;
+    while (((error = close(inputPipe[1])) == -1) && (errno == EINTR));
 
-    // copy the string into 't'
-    strcpy(t, snew);
-    numtokens = 0;
+    pthread_exit(0);
+}
 
-    /* count the number of tokens in s */
-    if (strtok(t, delimiters) != NULL)
-        for (numtokens = 1 ; strtok(NULL, delimiters) != NULL ; numtokens++) ;
-    
-    /* create argument array for ptrs to the tokens - allocate space for the argument array */
-    if ((*argvp = malloc((numtokens + 1) * sizeof(char *))) == NULL)
-    {
-        // in case malloc fails
-        error = errno;
-        free(t);
-        errno = error;
-        return -1;
-    }
-
-    /* insert pointers to tokens into the argument array */
-    if (numtokens == 0)
-        free(t);
-    else {
-        strcpy(t, snew);
-        **argvp = strtok(t, delimiters);
-        for (i = 1 ; i < numtokens ; i++)
-            *((*argvp) + i) = strtok(NULL, delimiters);
-    }
-    *((*argvp) + numtokens) = NULL; /* put in final NULL pointer */
-    
-    return numtokens;
+void *outputFunc(void *param)
+{
+    pthread_exit(0);
 }

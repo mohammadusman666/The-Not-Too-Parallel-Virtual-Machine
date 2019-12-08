@@ -10,8 +10,6 @@
 
 #define MAX_LINE_SIZE 100
 #define TERMINATE_STRING "$\n"
-#define NUM_THREADS 1
-// #define NUM_THREADS 2
 
 static char *typename[] = {"Start Task", "Data", "Broadcast", "Done", "Terminate", "Barrier"};
 
@@ -21,18 +19,26 @@ void *inputFunc(void *param);
 void *outputFunc(void *param);
 
 task_array tasks; // tasks array
+pthread_mutex_t lock; // thread mutex lock
 
 int main(void)
 {
     int i; // iterator
     pthread_t input_thread;
-    pthread_t threads[NUM_THREADS]; // array of threads to be joined upon
     int threadCreationResult;
 
     // initialize tasks array object
     memset(tasks.tasks, 0, sizeof(tasks.tasks));
     tasks.numOfTasks = 0;
 
+    // create the mutex lock
+    // 2nd arg NULL -> default attributes
+    if (pthread_mutex_init(&lock, NULL) != 0)
+    {
+        printf("Mutex init has failed!\n");
+        return -1;
+    }
+    // create the input thread
     // 2nd arg NULL -> default attributes
     if (threadCreationResult = pthread_create(&input_thread, NULL, inputFunc, &tasks))
     {
@@ -40,15 +46,11 @@ int main(void)
         return -1;
     }
 
-    threads[0] = input_thread;
-    // threads[1] = output_thread;
-
     // block until all threads complete
-	for (i = 0; i < NUM_THREADS; i++)
-	{
-		pthread_join(threads[i], NULL); // wait for thread to execute
-	}
-    
+    pthread_join(input_thread, NULL); // wait for thread to execute
+
+    pthread_mutex_destroy(&lock); // destroy thread mutex lock
+
     return 0;
 }
 
@@ -95,7 +97,9 @@ int getpacket(int fd, int *compidp, int *taskidp, packet_t *typep, int *lenp, un
     fgetc(fptr); // consume \n
     
     for (i = 0; i < NUMTYPES; i++)
+    {
         fprintf(stderr, " %d = %s\n", i, typename[i]);
+    }
     fprintf(stderr, "Enter type: ");
     *typep = 0;
     if (fscanf(fptr, "%d", (int *) typep) == EOF)
@@ -123,9 +127,13 @@ int getpacket(int fd, int *compidp, int *taskidp, packet_t *typep, int *lenp, un
         linelen = strlen(bufptr);
 
         if (linelen == 0)
+        {
             break;
+        }
         if (strcmp(TERMINATE_STRING, bufptr) == 0)
+        {
             break;
+        }
         
         bufptr = bufptr + linelen;
         pack.length = pack.length + linelen;
@@ -136,12 +144,9 @@ int getpacket(int fd, int *compidp, int *taskidp, packet_t *typep, int *lenp, un
             return -1;
         }
         
-        // fprintf(stderr, "Received=%d, total=%d, Enter line ($ to terminate):\n",
-        //         linelen, pack.length);
         fprintf(stderr, "Enter data ($ to terminate): ");
     }
 
-    // fprintf(stderr, "Pack length = %d\n", pack.length);
     *lenp = pack.length;
     strcpy(buf, buff);
 
@@ -213,6 +218,8 @@ void *inputFunc(void *param)
     task_array *tasksarray;
     tasksarray = (task_array *) param;
 
+    int writefdarray[MAX_TASKS];
+
     /***** TASK *****/
     unsigned char buf[MAX_PACK_SIZE];
     int compid, taskid, tdatalen, result;
@@ -223,7 +230,6 @@ void *inputFunc(void *param)
 
     /***** MAKEARGV *****/
     char delim[] = " \t\n";
-    int i;
     char **myargv;
     int numtokens;
     /***** MAKEARGV *****/
@@ -233,9 +239,6 @@ void *inputFunc(void *param)
 
     int threadCreationResult;
     pthread_t output_thread;
-
-    int inputPipe[2];
-    int outputPipe[2];
     /***** CHILD, THREAD & PIPE *****/
 
     tin = STDIN_FILENO;
@@ -249,7 +252,9 @@ void *inputFunc(void *param)
         /* 1. Output an error message.
         2. Discard the packet. */
         if (result == 1)
+        {
             continue;
+        }
 
         /* 0 => NEWTASK
         1. If a child task is already executing, discard the packet and output an error message.
@@ -263,7 +268,7 @@ void *inputFunc(void *param)
         if (type == 0)
         {
             /* If a child task is already executing, discard the packet and output an error message */
-            if (tasksarray->numOfTasks >= 1)
+            if (tasksarray->numOfTasks >= 10)
             {
                 fprintf(stderr, "Maximum number of tasks reached!\n");
                 continue;
@@ -278,6 +283,7 @@ void *inputFunc(void *param)
             else
             {
                 int taskind;
+                int inputPipe[2], outputPipe[2];
                 /* create input & output pipes */
                 if ((pipe(inputPipe) < 0) || (pipe(outputPipe) < 0))
                 {
@@ -285,15 +291,12 @@ void *inputFunc(void *param)
                     return NULL;
                 }
                 // add new task in tasks array
-                // if ((taskind = addTask(tasksarray, compid, taskid, mypipefd[1], mypipefd[0])) == -1)
                 if ((taskind = addTask(tasksarray, compid, taskid, inputPipe[1], inputPipe[0])) == -1)
                 {
                     fprintf(stderr, "Error in adding a new task!\n");
                     return NULL;
                 }
-
-                // after creating the output thread, pass the task object returned by the addTask to the thread
-                // so that it can update the output thread id attribute of the task object
+                writefdarray[taskind] = inputPipe[1]; // save the task's writefd
 
                 /* pipes have been created */
                 childpid = fork();
@@ -319,16 +322,6 @@ void *inputFunc(void *param)
                     }
 
                     wait(NULL); // wait for child
-
-                    // char concat_str[MAX_PACK_SIZE];
-                    // r_read(inputPipe[0], buf, MAX_PACK_SIZE);
-
-                    // type = 1; // 1 => DATA
-                    // tdatalen = strlen(buf);
-                    // *buf = 0;
-                    // strcpy(buf, concat_str);
-                    // if (putpacket(tout, compid, taskid, type, tdatalen, buf) == -1) // 4th argument (1 = DATA)
-                    //     break;
                 }
                 /* child code */
                 else
@@ -373,7 +366,7 @@ void *inputFunc(void *param)
             {
                 /* copy the data portion to writefd */
                 // if ((error = r_write(mypipefd[1], buf, tdatalen)) == -1)
-                if ((error = r_write(inputPipe[1], buf, tdatalen)) == -1)
+                if ((error = r_write(writefdarray[result], buf, tdatalen)) == -1)
                 {
                     fprintf(stderr, "%s", strerror(errno));
                     break; // break the loop and exit
@@ -402,22 +395,25 @@ void *inputFunc(void *param)
             else
             {
                 /* close the writefd descriptor if it is still open */
-                // while (((error = close(mypipefd[1])) == -1) && (errno == EINTR));
-                while (((error = close(inputPipe[1])) == -1) && (errno == EINTR));
-                // if (error== -1)
-                // {
-                //     ;
-                // }
+                while (((error = close(writefdarray[result])) == -1) && (errno == EINTR));
+
                 /* set the endinput member for this task entry */
                 tasksarray->tasks[result]->endinput = 1;
-                // tasksarray->tasks[result] = NULL;
-                // tasksarray->numOfTasks -= 1;
             }
         }
     }
 
     // close pipe write end
-    while (((error = close(inputPipe[1])) == -1) && (errno == EINTR));
+    // result will have the index if found in tasks array
+    result = checkTask(tasksarray, compid, taskid); // check the task in tasks array
+    if (result == -1)
+    {
+        fprintf(stderr, "Computation Id and Task Id don't match or endinput is true!\n");
+    }
+    else
+    {
+        while (((error = close(writefdarray[result])) == -1) && (errno == EINTR));
+    }
 
     pthread_exit(0);
 }
@@ -447,17 +443,23 @@ void *outputFunc(void *param)
 
     while ((error = r_read(task->readfd, buf, MAX_PACK_SIZE)) != 0)
     {
+        pthread_mutex_lock(&lock); // lock thread mutex
+        task->mlock = lock; // save thread mutex
+
         type = 1; // 1 => DATA
         tdatalen = strlen(buf);
         if (!tdatalen)
+        {
             continue;
+        }
 
         if (putpacket(tout, compid, taskid, type, tdatalen, buf) == -1) // 4th argument (1 = DATA)
+        {
             break;
+        }
 
         recvbytes = task->recvbytes - recvbytes;
         task->sentbytes += recvbytes;
-        // packets += 1;
         task->sentpackets += 1;
 
         fprintf(stderr, "Sent: %d %d\n", task->sentbytes, task->sentpackets);
@@ -466,6 +468,9 @@ void *outputFunc(void *param)
         fprintf(stderr, "CompID: %d, TaskID: %d\n", compid, taskid);
         fprintf(stderr, "Bytes Sent: %d, Packets Sent: %d\n", task->sentbytes, task->sentpackets);
         fprintf(stderr, "Bytes Received: %d, Packets Received: %d\n\n", task->recvbytes, task->recvpackets);
+
+        pthread_mutex_unlock(&lock); // unlock thread mutex
+        // task->mlock = NULL; // remove thread mutex
     }
 
     /* After falling through the loop because of an end-of-file or an error on readfd, the output thread
@@ -482,7 +487,9 @@ void *outputFunc(void *param)
     tdatalen = 0;
     *buf = 0;
     if (putpacket(tout, compid, taskid, type, tdatalen, buf) == -1) // 4th argument (1 = DATA)
+    {
         return NULL;
+    }
 
     /* 4. Output information about the finished task to standard error or to the remote logger.
     Include the computation ID, the task ID, the total bytes sent by the task, the total
@@ -494,7 +501,7 @@ void *outputFunc(void *param)
     fprintf(stderr, "Bytes Received: %d, Packets Received: %d\n\n", task->recvbytes, task->recvpackets);
 
     // 5. Deactivate the task entry by setting the computation ID to –
-    // task->compid = '-'; commented bcz I'm currently setting the entry to NULL when DONE packet is sent
+    // task->compid = '-';
     tasks.tasks[key] = NULL;
     tasks.numOfTasks -= 1;
 

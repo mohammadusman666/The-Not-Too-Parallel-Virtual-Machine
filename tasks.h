@@ -5,5 +5,6 @@ typedef struct {
     int numOfTasks;
 } task_array;
 
+int findFreePlace(task_array *tasksarray);
 int addTask(task_array *tasksarray, int compid, int taskid, int writefd, int readfd);
 int checkTask(task_array *tasksarray, int compid, int taskid);

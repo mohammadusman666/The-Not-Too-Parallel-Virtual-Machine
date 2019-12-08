@@ -58,10 +58,10 @@ int addTask(task_array *tasksarray, int compid, int taskid, int writefd, int rea
             task->sentbytes = 0;
             task->sentpackets = -1;
 
-            task->taskpid = 0; // tbd
-            task->tasktid = 0; // tbd
+            task->taskpid = -1;
+            task->tasktid = -1;
             task->barrier = -1;
-            // task->mlock = NULL; // tbd
+            // task->mlock = -1;
 
             task->endinput = 0;
 

@@ -56,7 +56,7 @@ int addTask(task_array *tasksarray, int compid, int taskid, int writefd, int rea
             task->recvbytes = 0;
             task->recvpackets = 0;
             task->sentbytes = 0;
-            task->sentpackets = 0;
+            task->sentpackets = -1;
 
             task->taskpid = 0; // tbd
             task->tasktid = 0; // tbd

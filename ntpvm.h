@@ -18,10 +18,10 @@ typedef struct {
 typedef struct {
     int compid; /* computation ID for task */
     int taskid; /* task ID for the task */
-    int writefd; /* holds dispatcher->child fd */
-    int readfd; /* holds child->dispatcher fd */
+    int writefd; /* holds dispatcher -> child fd */
+    int readfd; /* holds child -> dispatcher fd */
     int recvbytes;
-    int recvpacksets;
+    int recvpackets;
     int sentbytes;
     int sentpackets;
     pid_t taskpid; /* process ID of the forked task */

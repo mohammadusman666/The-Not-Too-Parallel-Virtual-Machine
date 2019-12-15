@@ -1,0 +1,14 @@
+# Source: https://stackoverflow.com/questions/5711120/gitignore-without-binary-files
+
+# Ignore all
+*
+
+# Unignore all with extensions
+!*.*
+
+#Unignore makefile
+!makefile
+
+# Unignore all dirs
+!*/
+

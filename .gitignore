@@ -12,3 +12,5 @@
 # Unignore all dirs
 !*/
 
+# Some test python scripts
+*.py

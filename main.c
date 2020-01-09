@@ -15,6 +15,7 @@
 #define TERMINATE_STRING "$\n"
 
 static volatile sig_atomic_t doneFlag = 0;
+static volatile sig_atomic_t sigreceived = 0;
 
 static char *typename[] = {"Start Task", "Data", "Broadcast", "Done", "Terminate", "Barrier"};
 
@@ -27,28 +28,45 @@ task_array tasks; // tasks array
 pthread_mutex_t stdoutLock; // stdout mutex lock
 pthread_mutex_t taskLock; // task object mutex lock
 
+// Ctrl-C handler
 static void intHandler(int signo)
 {
     doneFlag = 1;
 }
+// SIGUSR1 handler
+static void su1Handler(int signo)
+{
+    sigreceived = 1;
+}
 
+// Main Program
 int main(void)
 {
     int i; // iterator
     pthread_t input_thread;
     int threadCreationResult;
-    struct sigaction act;
+    struct sigaction actSI;
+    struct sigaction actSU1;
 
     // initialize tasks array object
     memset(tasks.tasks, 0, sizeof(tasks.tasks));
     tasks.numOfTasks = 0;
 
     // Ctrl-C handler
-    act.sa_handler = intHandler;
-    act.sa_flags = 0;
-    if ((sigemptyset(&act.sa_mask) == -1) || (sigaction(SIGINT, &act, NULL) == -1))
+    actSI.sa_handler = intHandler;
+    actSI.sa_flags = 0;
+    if ((sigemptyset(&actSI.sa_mask) == -1) || (sigaction(SIGINT, &actSI, NULL) == -1))
     {
         fprintf(stderr, "Failed to install SIGINT signal handler\n");
+        return -1;
+    }
+
+    // SIGUSR1 handler
+    actSU1.sa_handler = su1Handler;
+    actSU1.sa_flags = 0;
+    if ((sigemptyset(&actSU1.sa_mask) == -1) || (sigaction(SIGUSR1, &actSU1, NULL) == -1))
+    {
+        fprintf(stderr, "Failed to install SIGUSR1 signal handler\n");
         return -1;
     }
 
@@ -114,6 +132,13 @@ int getpacket(int fd, int *compidp, int *taskidp, packet_t *typep, int *lenp, un
     {
         fprintf(stderr, "Error reading CompId!\n");
         errno = EINVAL;
+        
+        // unlock thread mutex
+        if (lockError = pthread_mutex_unlock(&stdoutLock))
+        {
+            fprintf(stderr, "Failed to unlock mutex!\n");
+        }
+        
         return -1;
     }
     fgetc(fptr); // consume \n
@@ -124,6 +149,13 @@ int getpacket(int fd, int *compidp, int *taskidp, packet_t *typep, int *lenp, un
     {
         fprintf(stderr, "Error reading TaskId!\n");
         errno = EINVAL;
+        
+        // unlock thread mutex
+        if (lockError = pthread_mutex_unlock(&stdoutLock))
+        {
+            fprintf(stderr, "Failed to unlock mutex!\n");
+        }
+        
         return -1;
     }
     fgetc(fptr); // consume \n
@@ -138,6 +170,13 @@ int getpacket(int fd, int *compidp, int *taskidp, packet_t *typep, int *lenp, un
     {
         fprintf(stderr, "Error reading Type!\n");
         errno = EINVAL;
+
+        // unlock thread mutex
+        if (lockError = pthread_mutex_unlock(&stdoutLock))
+        {
+            fprintf(stderr, "Failed to unlock mutex!\n");
+        }
+        
         return -1;
     }
     fgetc(fptr); // consume \n
@@ -145,6 +184,13 @@ int getpacket(int fd, int *compidp, int *taskidp, packet_t *typep, int *lenp, un
     if ((*typep < 0) && (*typep > 5))
     {
         fprintf(stderr, "Got invalid packet! (%d)\n", *typep);
+
+        // unlock thread mutex
+        if (lockError = pthread_mutex_unlock(&stdoutLock))
+        {
+            fprintf(stderr, "Failed to unlock mutex!\n");
+        }
+
         return 1;
     }
 
@@ -173,6 +219,13 @@ int getpacket(int fd, int *compidp, int *taskidp, packet_t *typep, int *lenp, un
         if (pack.length >= MAX_PACK_SIZE)
         {
             fprintf(stderr, "Maximum packet size exceeded\n");
+
+            // unlock thread mutex
+            if (lockError = pthread_mutex_unlock(&stdoutLock))
+            {
+                fprintf(stderr, "Failed to unlock mutex!\n");
+            }
+
             return -1;
         }
         
@@ -182,7 +235,7 @@ int getpacket(int fd, int *compidp, int *taskidp, packet_t *typep, int *lenp, un
     *lenp = pack.length;
     strcpy(buf, buff);
 
-    // lock thread mutex
+    // unlock thread mutex
     if (lockError = pthread_mutex_unlock(&stdoutLock))
     {
         fprintf(stderr, "Failed to unlock mutex!\n");
@@ -332,6 +385,7 @@ void *inputFunc(void *param)
                 if (lockError = pthread_mutex_lock(&taskLock))
                 {
                     fprintf(stderr, "Failed to lock task mutex!\n");
+                    return NULL;
                 }
 
                 // add new task in tasks array
@@ -353,11 +407,13 @@ void *inputFunc(void *param)
                 if (childpid < 0)
                 {
                     fprintf(stderr, "Child creation failed!\n");
+
                     // unlock task mutex
                     if (lockError = pthread_mutex_unlock(&taskLock))
                     {
                         fprintf(stderr, "Failed to unlock task mutex!\n");
                     }
+
                     return NULL;
                 }
                 /* parent code */
@@ -373,10 +429,18 @@ void *inputFunc(void *param)
                     if (threadCreationResult = pthread_create(&output_thread, NULL, outputFunc, &taskind))
                     {
                         fprintf(stderr, "Thread creation failed!\n");
+
+                        // unlock task mutex
+                        if (lockError = pthread_mutex_unlock(&taskLock))
+                        {
+                            fprintf(stderr, "Failed to unlock task mutex!\n");
+                        }
+
                         return NULL;
                     }
 
                     wait(NULL); // wait for child
+
                     // unlock task mutex
                     if (lockError = pthread_mutex_unlock(&taskLock))
                     {
@@ -406,6 +470,7 @@ void *inputFunc(void *param)
                     {
                         fprintf(stderr, "Failed to unlock task mutex!\n");
                     }
+
                     // a null terminated array of character pointers
                     fprintf(stderr, "Executing...\n");
                     execvp(myargv[0], myargv);
@@ -430,7 +495,7 @@ void *inputFunc(void *param)
             // result will have the index if found in tasks array
             result = checkTask(tasksarray, compid, taskid); // check the task in tasks array
 
-            if ((result == -1) || (result == -2))
+            if (result < 0)
             {
                 fprintf(stderr, "Computation Id and Task Id don't match or endinput is true!\n");
                 
@@ -458,6 +523,7 @@ void *inputFunc(void *param)
                     {
                         fprintf(stderr, "Failed to unlock task mutex!\n");
                     }
+
                     continue;
                 }
 
@@ -539,6 +605,7 @@ void *inputFunc(void *param)
                 if (lockError = pthread_mutex_lock(&stdoutLock))
                 {
                     fprintf(stderr, "Failed to lock mutex!\n");
+                    continue;
                 }
                 // the dispatcher also forwards the broadcast packet on its standard output
                 if (putpacket(tout, compid, taskid, type, tdatalen, buf) == -1)
@@ -670,11 +737,13 @@ void *inputFunc(void *param)
             if (result == -1)
             {
                 fprintf(stderr, "Computation Id and Task Id don't match or endinput is true!\n");
+
                 // unlock task mutex
                 if (lockError = pthread_mutex_unlock(&taskLock))
                 {
                     fprintf(stderr, "Failed to unlock task mutex!\n");
                 }
+
                 continue;
             }
             else
@@ -687,12 +756,10 @@ void *inputFunc(void *param)
                 {
                     fprintf(stderr, "%s%d\n", "Barrier Number: ", barrierNum);
 
-                    tasksarray->tasks[result]->barrier = barrierNum;
-
-                    //Check if all tasks of this computation have arrived at the barrier
+                    // check if already all of the tasks are waiting for this barrier number
                     int i;
-                    int totTasks = 0; //Total number of tasks in a computation
-                    int arrived = 0; //Total number of tasks in a computation that have arrived at the barrier
+                    int totTasks = 0; // total number of tasks in a computation
+                    int arrived = 0; // total number of tasks in a computation that have arrived at the barrier
                     ntpvm_task_t *task;
 
                     for (i = 0; i < MAX_TASKS; i++)
@@ -711,31 +778,96 @@ void *inputFunc(void *param)
                             }
                         }
                     }
-                
+                    // if all tasks in a computation are waiting for a barrier
                     if (totTasks == arrived)
                     {
-                        fprintf(stderr, "%s%d%s\n", "All tasks with the computation id ", compid," have arrived at the barrier!\n");
+                        // send SIGUSR1 signal to all threads (tasks)
+                        for (i = 0; i < MAX_TASKS; i++)
+                        {
+                            task = tasksarray->tasks[i];
 
-                        // Send a BARRIER message on stdout
-                        if (lockError = pthread_mutex_lock(&stdoutLock))
-                        {
-                            fprintf(stderr, "Failed to lock mutex!\n");
-                        }
+                            if (task)
+                            {
+                                // if compid matches
+                                if ((task->compid == compid))
+                                {
+                                    if (pthread_kill(tasksarray->tasks[result]->tasktid, SIGUSR1))
+                                        fprintf(stderr, "Failed to send SIGUSR1 signal\n");
 
-                        if (putpacket(tout, compid, taskid, type, tdatalen, buf) == -1)
-                        {
-                            fprintf(stderr, "Failed to putpacket!\n");
-                        }
-                        // unlock stdout mutex
-                        if (lockError = pthread_mutex_unlock(&stdoutLock))
-                        {
-                            fprintf(stderr, "Failed to unlock mutex!\n");
+                                    task->barrier = -1;
+                                }
+                            }
                         }
                     }
-                } 
-                // could not detect a valid barrier number
-                else {
+                    else // if all tasks are not waiting for barrier number
+                    {
+                        if (putpacket(writefdarray[result], compid, taskid, type, tdatalen, buf) == -1) // 4th argument (1 = DATA)
+                        {
+                            // unlock task mutex
+                            if (lockError = pthread_mutex_unlock(&taskLock))
+                            {
+                                fprintf(stderr, "Failed to unlock task mutex!\n");
+                            }
+
+                            continue;
+                        }
+
+                        // set this task's barrier number
+                        tasksarray->tasks[result]->barrier = barrierNum;
+
+                        // check if all tasks of this computation have arrived at the barrier
+                        totTasks = 0; // total number of tasks in a computation
+                        arrived = 0; // total number of tasks in a computation that have arrived at the barrier
+
+                        for (i = 0; i < MAX_TASKS; i++)
+                        {
+                            task = tasksarray->tasks[i];
+
+                            if (task)
+                            {
+                                // if compid matches
+                                if ((task->compid == compid))
+                                {
+                                    totTasks++;
+                                    
+                                    if ((task->barrier == barrierNum))
+                                        arrived++;
+                                }
+                            }
+                        }
                     
+                        if (totTasks == arrived)
+                        {
+                            fprintf(stderr, "%s%d%s\n", "All tasks with the computation id ", compid, " have arrived at the barrier!");
+
+                            // send a BARRIER message on stdout
+                            if (lockError = pthread_mutex_lock(&stdoutLock))
+                            {
+                                fprintf(stderr, "Failed to lock mutex!\n");
+
+                                // unlock task mutex
+                                if (lockError = pthread_mutex_unlock(&taskLock))
+                                {
+                                    fprintf(stderr, "Failed to unlock task mutex!\n");
+                                }
+
+                                continue;
+                            }
+
+                            if (putpacket(tout, compid, taskid, type, tdatalen, buf) == -1)
+                            {
+                                fprintf(stderr, "Failed to putpacket!\n");
+                            }
+                            // unlock stdout mutex
+                            if (lockError = pthread_mutex_unlock(&stdoutLock))
+                            {
+                                fprintf(stderr, "Failed to unlock mutex!\n");
+                            }
+                        }
+                    }
+                }
+                else // could not detect a valid barrier number
+                {
                     fprintf(stderr, "Not a valid barrier number!\n");
                 }
                 // unlock task mutex
@@ -792,6 +924,8 @@ void *outputFunc(void *param)
 
     unsigned char tempBuf[MAX_PACK_SIZE];
     int lockError;
+
+    sigset_t masknew, maskold;
     /***** TASK *****/
 
     key = *((int *) param);
@@ -891,7 +1025,7 @@ void *outputFunc(void *param)
         if (lockError = pthread_mutex_unlock(&taskLock))
         {
             fprintf(stderr, "Failed to unlock task mutex!\n");
-            continue;
+            // continue;
         }
 
         fprintf(stderr, "Output Thread: %d %d %d %d\n", pack.compid, pack.taskid, pack.type, pack.length);
@@ -991,6 +1125,43 @@ void *outputFunc(void *param)
                 fprintf(stderr, "Failed to unlock task mutex!\n");
             }
         }
+        /* 5 => BARRIER */
+        else if (pack.type == 5)
+        {
+            // send a BARRIER message on stdout
+            if (putpacket(tout, compid, taskid, type, tdatalen, buf) == -1)
+            {
+                fprintf(stderr, "Failed to putpacket!\n");
+            }
+            // unlock stdout mutex
+            if (lockError = pthread_mutex_unlock(&stdoutLock))
+            {
+                fprintf(stderr, "Failed to unlock mutex!\n");
+            }
+
+            fprintf(stderr, "Going to setup signal mask!\n");
+
+            // if an error occurs while setting up the signal mask
+            if ((pthread_sigmask(SIG_SETMASK, NULL, &masknew) == -1) ||
+                (sigaddset(&masknew, SIGUSR1) == -1) ||
+                (pthread_sigmask(SIG_SETMASK, &masknew, &maskold) == -1) ||
+                (sigdelset(&masknew, SIGUSR1) == -1))
+            {
+                fprintf(stderr, "Failed to setup signal mask!\n");
+            }
+            else
+            {
+                while (sigreceived == 0)
+                    sigsuspend(&masknew);
+                sigprocmask(SIG_SETMASK, &maskold, NULL);
+            }
+
+            if (lockError = pthread_mutex_lock(&stdoutLock))
+            {
+                fprintf(stderr, "Failed to lock mutex!\n");
+                continue;
+            }
+        }
 
         fprintf(stderr, "Sent: %d %d\n", task->sentbytes, task->sentpackets);
 
@@ -1040,7 +1211,7 @@ void *outputFunc(void *param)
     *buf = 0;
     task->mlock = stdoutLock; // save thread mutex
 
-     // lock thread mutex
+    // lock thread mutex
     if (lockError = pthread_mutex_lock(&stdoutLock))
     {
         fprintf(stderr, "Failed to lock mutex!\n");
@@ -1068,8 +1239,6 @@ void *outputFunc(void *param)
         fprintf(stderr, "Failed to unlock mutex!\n");
         return NULL;
     }
-
-    
 
     // 6. Call pthread_exit
     pthread_exit(0);

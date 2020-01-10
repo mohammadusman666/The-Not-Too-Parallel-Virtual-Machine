@@ -85,7 +85,6 @@ int main(void)
         return -1;
     }
 
-    // block until all threads complete
     pthread_join(input_thread, NULL); // wait for thread to execute
 
     // destroy thread mutex lock
@@ -423,7 +422,7 @@ void *inputFunc(void *param)
                     tasksarray->tasks[taskind]->taskpid = childpid; // set child task PID
                     // close unneeded pipes
                     // close(outputPipe[0]);
-                    close(outputPipe[1]);
+                    // close(outputPipe[1]);
 
                     // 2nd arg NULL -> default attributes
                     if (threadCreationResult = pthread_create(&output_thread, NULL, outputFunc, &taskind))
@@ -452,8 +451,17 @@ void *inputFunc(void *param)
                 else
                 {
                     /* redirect stdin & stdout to pipe */
-                    dup2(outputPipe[0], 0);
-                    dup2(inputPipe[1], 1);
+                    if ((dup2(outputPipe[0], 0) == -1) || (dup2(inputPipe[1], 1) == -1))
+                    {
+                        fprintf(stderr, "Failed to redirect pipe ends!");
+                        return NULL;
+                    }
+                    // close unneeded pipes
+                    if ((close(outputPipe[0]) == -1) || (close(inputPipe[1]) == -1))
+                    {
+                        fprintf(stderr, "Failed to close unneeded pipe ends!");
+                        return NULL;
+                    }
 
                     /* now exec the new image */
                     // we make the the argument array
@@ -474,6 +482,9 @@ void *inputFunc(void *param)
                     // a null terminated array of character pointers
                     fprintf(stderr, "Executing...\n");
                     execvp(myargv[0], myargv);
+
+                    fprintf(stderr, "Failed to execute!\n");
+                    return NULL;
                 }
             }
         }
@@ -1049,12 +1060,15 @@ void *outputFunc(void *param)
 
             if (putpacket(tout, pack.compid, pack.taskid, pack.type, pack.length, tempBuf) == -1) // 4th argument (1 = DATA)
             {
+                fprintf(stderr, "Failed to putpacket!\n");
+
                 // unlock thread mutex
                 if (lockError = pthread_mutex_unlock(&stdoutLock))
                 {
                     fprintf(stderr, "Failed to unlock mutex!\n");
                 }
-                break;
+
+                continue;
             }
             
             // lock task mutex
@@ -1183,7 +1197,7 @@ void *outputFunc(void *param)
         fprintf(stderr, "Failed to lock task mutex!\n");
         return NULL;
     }
-   
+
     // 5. Deactivate the task entry by setting the computation ID to –
     // task->compid = '-';
     tasks.tasks[key] = NULL;

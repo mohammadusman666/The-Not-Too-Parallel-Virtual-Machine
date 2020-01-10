@@ -6,7 +6,7 @@
 # Unignore all with extensions
 !*.*
 
-#Unignore makefile
+# Unignore makefile
 !makefile
 
 # Unignore all dirs
@@ -14,3 +14,6 @@
 
 # Some test python scripts
 *.py
+
+# Some txt files
+*.txt

@@ -42,7 +42,6 @@ static void su1Handler(int signo)
 // Main Program
 int main(void)
 {
-    int i; // iterator
     pthread_t input_thread;
     int threadCreationResult;
     struct sigaction actSI;
@@ -72,14 +71,14 @@ int main(void)
 
     // create the mutex lock
     // 2nd arg NULL -> default attributes
-    if ((pthread_mutex_init(&stdoutLock, NULL) != 0) || pthread_mutex_init(&taskLock, NULL) != 0)
+    if ((pthread_mutex_init(&stdoutLock, NULL) != 0) || (pthread_mutex_init(&taskLock, NULL) != 0))
     {
         fprintf(stderr, "Mutex init has failed!\n");
         return -1;
     }
     // create the input thread
     // 2nd arg NULL -> default attributes
-    if (threadCreationResult = pthread_create(&input_thread, NULL, inputFunc, &tasks))
+    if ((threadCreationResult = pthread_create(&input_thread, NULL, inputFunc, &tasks)))
     {
         fprintf(stderr, "%s", strerror(errno));
         return -1;
@@ -119,7 +118,7 @@ int getpacket(int fd, int *compidp, int *taskidp, packet_t *typep, int *lenp, un
     }
 
     // lock thread mutex
-    if (lockError = pthread_mutex_lock(&stdoutLock))
+    if ((lockError = pthread_mutex_lock(&stdoutLock)))
     {
         fprintf(stderr, "Failed to lock mutex!\n");
         return -1;
@@ -133,7 +132,7 @@ int getpacket(int fd, int *compidp, int *taskidp, packet_t *typep, int *lenp, un
         errno = EINVAL;
         
         // unlock thread mutex
-        if (lockError = pthread_mutex_unlock(&stdoutLock))
+        if ((lockError = pthread_mutex_unlock(&stdoutLock)))
         {
             fprintf(stderr, "Failed to unlock mutex!\n");
         }
@@ -150,7 +149,7 @@ int getpacket(int fd, int *compidp, int *taskidp, packet_t *typep, int *lenp, un
         errno = EINVAL;
         
         // unlock thread mutex
-        if (lockError = pthread_mutex_unlock(&stdoutLock))
+        if ((lockError = pthread_mutex_unlock(&stdoutLock)))
         {
             fprintf(stderr, "Failed to unlock mutex!\n");
         }
@@ -171,7 +170,7 @@ int getpacket(int fd, int *compidp, int *taskidp, packet_t *typep, int *lenp, un
         errno = EINVAL;
 
         // unlock thread mutex
-        if (lockError = pthread_mutex_unlock(&stdoutLock))
+        if ((lockError = pthread_mutex_unlock(&stdoutLock)))
         {
             fprintf(stderr, "Failed to unlock mutex!\n");
         }
@@ -185,7 +184,7 @@ int getpacket(int fd, int *compidp, int *taskidp, packet_t *typep, int *lenp, un
         fprintf(stderr, "Got invalid packet! (%d)\n", *typep);
 
         // unlock thread mutex
-        if (lockError = pthread_mutex_unlock(&stdoutLock))
+        if ((lockError = pthread_mutex_unlock(&stdoutLock)))
         {
             fprintf(stderr, "Failed to unlock mutex!\n");
         }
@@ -220,7 +219,7 @@ int getpacket(int fd, int *compidp, int *taskidp, packet_t *typep, int *lenp, un
             fprintf(stderr, "Maximum packet size exceeded\n");
 
             // unlock thread mutex
-            if (lockError = pthread_mutex_unlock(&stdoutLock))
+            if ((lockError = pthread_mutex_unlock(&stdoutLock)))
             {
                 fprintf(stderr, "Failed to unlock mutex!\n");
             }
@@ -232,10 +231,10 @@ int getpacket(int fd, int *compidp, int *taskidp, packet_t *typep, int *lenp, un
     }
 
     *lenp = pack.length;
-    strcpy(buf, buff);
+    strcpy((char *)buf, buff);
 
     // unlock thread mutex
-    if (lockError = pthread_mutex_unlock(&stdoutLock))
+    if ((lockError = pthread_mutex_unlock(&stdoutLock)))
     {
         fprintf(stderr, "Failed to unlock mutex!\n");
         return -1;
@@ -381,7 +380,7 @@ void *inputFunc(void *param)
                 }
 
                 // lock task mutex
-                if (lockError = pthread_mutex_lock(&taskLock))
+                if ((lockError = pthread_mutex_lock(&taskLock)))
                 {
                     fprintf(stderr, "Failed to lock task mutex!\n");
                     return NULL;
@@ -392,7 +391,7 @@ void *inputFunc(void *param)
                 {
                     fprintf(stderr, "Error in adding a new task!\n");
                     // unlock task mutex
-                    if (lockError = pthread_mutex_unlock(&taskLock))
+                    if ((lockError = pthread_mutex_unlock(&taskLock)))
                     {
                         fprintf(stderr, "Failed to unlock task mutex!\n");
                     }
@@ -408,7 +407,7 @@ void *inputFunc(void *param)
                     fprintf(stderr, "Child creation failed!\n");
 
                     // unlock task mutex
-                    if (lockError = pthread_mutex_unlock(&taskLock))
+                    if ((lockError = pthread_mutex_unlock(&taskLock)))
                     {
                         fprintf(stderr, "Failed to unlock task mutex!\n");
                     }
@@ -425,12 +424,12 @@ void *inputFunc(void *param)
                     // close(outputPipe[1]);
 
                     // 2nd arg NULL -> default attributes
-                    if (threadCreationResult = pthread_create(&output_thread, NULL, outputFunc, &taskind))
+                    if ((threadCreationResult = pthread_create(&output_thread, NULL, outputFunc, &taskind)))
                     {
                         fprintf(stderr, "Thread creation failed!\n");
 
                         // unlock task mutex
-                        if (lockError = pthread_mutex_unlock(&taskLock))
+                        if ((lockError = pthread_mutex_unlock(&taskLock)))
                         {
                             fprintf(stderr, "Failed to unlock task mutex!\n");
                         }
@@ -441,7 +440,7 @@ void *inputFunc(void *param)
                     wait(NULL); // wait for child
 
                     // unlock task mutex
-                    if (lockError = pthread_mutex_unlock(&taskLock))
+                    if ((lockError = pthread_mutex_unlock(&taskLock)))
                     {
                         fprintf(stderr, "Failed to unlock task mutex!\n");
                     }
@@ -465,7 +464,7 @@ void *inputFunc(void *param)
 
                     /* now exec the new image */
                     // we make the the argument array
-                    if ((numtokens = makeargv(buf, delim, &myargv)) == -1)
+                    if ((numtokens = makeargv((char *)buf, delim, &myargv)) == -1)
                     {
                         fprintf(stderr, "Failed to construct an argument array for %s\n", buf);
                         return NULL;
@@ -474,7 +473,7 @@ void *inputFunc(void *param)
                     myargv[numtokens-1] = NULL; // make $ = null
                     
                     // unlock task mutex
-                    if (lockError = pthread_mutex_unlock(&taskLock))
+                    if ((lockError = pthread_mutex_unlock(&taskLock)))
                     {
                         fprintf(stderr, "Failed to unlock task mutex!\n");
                     }
@@ -497,7 +496,7 @@ void *inputFunc(void *param)
         else if (type == 1)
         {
             // lock task mutex
-            if (lockError = pthread_mutex_lock(&taskLock))
+            if ((lockError = pthread_mutex_lock(&taskLock)))
             {
                 fprintf(stderr, "Failed to lock task mutex!\n");
             }
@@ -511,7 +510,7 @@ void *inputFunc(void *param)
                 fprintf(stderr, "Computation Id and Task Id don't match or endinput is true!\n");
                 
                 // unlock task mutex
-                if (lockError = pthread_mutex_unlock(&taskLock))
+                if ((lockError = pthread_mutex_unlock(&taskLock)))
                 {
                     fprintf(stderr, "Failed to unlock task mutex!\n");
                 }
@@ -530,7 +529,7 @@ void *inputFunc(void *param)
                 if (putpacket(writefdarray[result], compid, taskid, type, tdatalen, buf) == -1) // 4th argument (1 = DATA)
                 {
                     // unlock task mutex
-                    if (lockError = pthread_mutex_unlock(&taskLock))
+                    if ((lockError = pthread_mutex_unlock(&taskLock)))
                     {
                         fprintf(stderr, "Failed to unlock task mutex!\n");
                     }
@@ -543,7 +542,7 @@ void *inputFunc(void *param)
                 tasksarray->tasks[result]->recvbytes += tdatalen;
 
                 // unlock task mutex
-                if (lockError = pthread_mutex_unlock(&taskLock))
+                if ((lockError = pthread_mutex_unlock(&taskLock)))
                 {
                     fprintf(stderr, "Failed to unlock task mutex!\n");
                 }
@@ -560,7 +559,7 @@ void *inputFunc(void *param)
         else if (type == 2)
         {
             // lock task mutex
-            if (lockError = pthread_mutex_lock(&taskLock))
+            if ((lockError = pthread_mutex_lock(&taskLock)))
             {
                 fprintf(stderr, "Failed to lock task mutex!\n");
             }
@@ -574,7 +573,7 @@ void *inputFunc(void *param)
                 fprintf(stderr, "Computation Id and Task Id don't match!\n");
 
                 // unlock task mutex
-                if (lockError = pthread_mutex_unlock(&taskLock))
+                if ((lockError = pthread_mutex_unlock(&taskLock)))
                 {
                     fprintf(stderr, "Failed to unlock task mutex!\n");
                 }
@@ -607,13 +606,13 @@ void *inputFunc(void *param)
                 }
 
                 // unlock task mutex
-                if (lockError = pthread_mutex_unlock(&taskLock))
+                if ((lockError = pthread_mutex_unlock(&taskLock)))
                 {
                     fprintf(stderr, "Failed to unlock task mutex!\n");
                 }
 
                 // lock stdout mutex
-                if (lockError = pthread_mutex_lock(&stdoutLock))
+                if ((lockError = pthread_mutex_lock(&stdoutLock)))
                 {
                     fprintf(stderr, "Failed to lock mutex!\n");
                     continue;
@@ -630,7 +629,7 @@ void *inputFunc(void *param)
                     // continue;
                 }
                 // unlock stdout mutex
-                if (lockError = pthread_mutex_unlock(&stdoutLock))
+                if ((lockError = pthread_mutex_unlock(&stdoutLock)))
                 {
                     fprintf(stderr, "Failed to unlock mutex!\n");
                 }
@@ -644,7 +643,7 @@ void *inputFunc(void *param)
         else if (type == 3)
         {
             // lock task mutex
-            if (lockError = pthread_mutex_lock(&taskLock))
+            if ((lockError = pthread_mutex_lock(&taskLock)))
             {
                 fprintf(stderr, "Failed to lock task mutex!\n");
                 continue;
@@ -659,7 +658,7 @@ void *inputFunc(void *param)
                 fprintf(stderr, "Computation Id and Task Id don't match!\n");
 
                 // unlock task mutex
-                if (lockError = pthread_mutex_unlock(&taskLock))
+                if ((lockError = pthread_mutex_unlock(&taskLock)))
                 {
                     fprintf(stderr, "Failed to unlock task mutex!\n");
                 }
@@ -675,7 +674,7 @@ void *inputFunc(void *param)
                 tasksarray->tasks[result]->endinput = 1;
 
                 // unlock task mutex
-                if (lockError = pthread_mutex_unlock(&taskLock))
+                if ((lockError = pthread_mutex_unlock(&taskLock)))
                 {
                     fprintf(stderr, "Failed to unlock task mutex!\n");
                 }
@@ -685,7 +684,7 @@ void *inputFunc(void *param)
         else if (type == 4)
         {
             // lock task mutex
-            if (lockError = pthread_mutex_lock(&taskLock))
+            if ((lockError = pthread_mutex_lock(&taskLock)))
             {
                 fprintf(stderr, "Failed to lock task mutex!\n");
                 continue;
@@ -699,7 +698,7 @@ void *inputFunc(void *param)
                 fprintf(stderr, "Computation Id and Task Id don't match!\n");
 
                 // unlock task mutex
-                if (lockError = pthread_mutex_unlock(&taskLock))
+                if ((lockError = pthread_mutex_unlock(&taskLock)))
                 {
                     fprintf(stderr, "Failed to unlock task mutex!\n");
                 }
@@ -715,7 +714,7 @@ void *inputFunc(void *param)
                 tasksarray->tasks[result]->endinput = 1;
 
                 // unlock task mutex
-                if (lockError = pthread_mutex_unlock(&taskLock))
+                if ((lockError = pthread_mutex_unlock(&taskLock)))
                 {
                     fprintf(stderr, "Failed to unlock task mutex!\n");
                 }
@@ -738,7 +737,7 @@ void *inputFunc(void *param)
         else if (type == 5)
         {
             // lock task mutex
-            if (lockError = pthread_mutex_lock(&taskLock))
+            if ((lockError = pthread_mutex_lock(&taskLock)))
             {
                 fprintf(stderr, "Failed to lock task mutex!\n");
                 continue;
@@ -750,7 +749,7 @@ void *inputFunc(void *param)
                 fprintf(stderr, "Computation Id and Task Id don't match or endinput is true!\n");
 
                 // unlock task mutex
-                if (lockError = pthread_mutex_unlock(&taskLock))
+                if ((lockError = pthread_mutex_unlock(&taskLock)))
                 {
                     fprintf(stderr, "Failed to unlock task mutex!\n");
                 }
@@ -761,7 +760,7 @@ void *inputFunc(void *param)
             {
                 int barrierNum;
 
-                error = sscanf(buf, "%d", &barrierNum);
+                error = sscanf((char *)buf, "%d", &barrierNum);
                 // if no error occurs
                 if ((error > 0) && (error != EOF))
                 {
@@ -815,7 +814,7 @@ void *inputFunc(void *param)
                         if (putpacket(writefdarray[result], compid, taskid, type, tdatalen, buf) == -1) // 4th argument (1 = DATA)
                         {
                             // unlock task mutex
-                            if (lockError = pthread_mutex_unlock(&taskLock))
+                            if ((lockError = pthread_mutex_unlock(&taskLock)))
                             {
                                 fprintf(stderr, "Failed to unlock task mutex!\n");
                             }
@@ -852,12 +851,12 @@ void *inputFunc(void *param)
                             fprintf(stderr, "%s%d%s\n", "All tasks with the computation id ", compid, " have arrived at the barrier!");
 
                             // send a BARRIER message on stdout
-                            if (lockError = pthread_mutex_lock(&stdoutLock))
+                            if ((lockError = pthread_mutex_lock(&stdoutLock)))
                             {
                                 fprintf(stderr, "Failed to lock mutex!\n");
 
                                 // unlock task mutex
-                                if (lockError = pthread_mutex_unlock(&taskLock))
+                                if ((lockError = pthread_mutex_unlock(&taskLock)))
                                 {
                                     fprintf(stderr, "Failed to unlock task mutex!\n");
                                 }
@@ -870,7 +869,7 @@ void *inputFunc(void *param)
                                 fprintf(stderr, "Failed to putpacket!\n");
                             }
                             // unlock stdout mutex
-                            if (lockError = pthread_mutex_unlock(&stdoutLock))
+                            if ((lockError = pthread_mutex_unlock(&stdoutLock)))
                             {
                                 fprintf(stderr, "Failed to unlock mutex!\n");
                             }
@@ -882,7 +881,7 @@ void *inputFunc(void *param)
                     fprintf(stderr, "Not a valid barrier number!\n");
                 }
                 // unlock task mutex
-                if (lockError = pthread_mutex_unlock(&taskLock))
+                if ((lockError = pthread_mutex_unlock(&taskLock)))
                 {
                     fprintf(stderr, "Failed to unlock task mutex!\n");
                 }
@@ -896,7 +895,7 @@ void *inputFunc(void *param)
     fprintf(stderr, "\nProgram terminating ...\n\n");
 
     // lock task mutex
-    if (lockError = pthread_mutex_lock(&taskLock))
+    if ((lockError = pthread_mutex_lock(&taskLock)))
     {
         fprintf(stderr, "Failed to lock task mutex!\n");
     }
@@ -911,7 +910,7 @@ void *inputFunc(void *param)
         }
     }
     // unlock task mutex
-    if (lockError = pthread_mutex_unlock(&taskLock))
+    if ((lockError = pthread_mutex_unlock(&taskLock)))
     {
         fprintf(stderr, "Failed to unlock task mutex!\n");
     }
@@ -950,7 +949,7 @@ void *outputFunc(void *param)
     // 1st time the task is run
     while ((error = r_read(task->readfd, buf, MAX_PACK_SIZE)) != 0)
     {
-        if (lockError = pthread_mutex_lock(&stdoutLock)) /* no mutex, give up */
+        if ((lockError = pthread_mutex_lock(&stdoutLock))) /* no mutex, give up */
         {
             fprintf(stderr, "Failed to lock mutex!\n");
             continue;
@@ -959,11 +958,11 @@ void *outputFunc(void *param)
         task->mlock = stdoutLock; // save thread mutex
 
         type = 1; // 1 => DATA
-        tdatalen = strlen(buf);
+        tdatalen = strlen((char *)buf);
         if (!tdatalen)
         {
-             // unlock thread mutex
-            if (lockError = pthread_mutex_unlock(&stdoutLock))
+            // unlock thread mutex
+            if ((lockError = pthread_mutex_unlock(&stdoutLock)))
             {
                 fprintf(stderr, "Failed to unlock mutex!\n");
             }
@@ -973,7 +972,7 @@ void *outputFunc(void *param)
         if (putpacket(tout, compid, taskid, type, tdatalen, buf) == -1) // 4th argument (1 = DATA)
         {
             // unlock thread mutex
-            if (lockError = pthread_mutex_unlock(&stdoutLock))
+            if ((lockError = pthread_mutex_unlock(&stdoutLock)))
             {
                 fprintf(stderr, "Failed to unlock mutex!\n");
             }
@@ -981,7 +980,7 @@ void *outputFunc(void *param)
         }
 
         // lock task mutex
-        if (lockError = pthread_mutex_lock(&taskLock))
+        if ((lockError = pthread_mutex_lock(&taskLock)))
         {
             fprintf(stderr, "Failed to lock task mutex!\n");
             continue;
@@ -992,7 +991,7 @@ void *outputFunc(void *param)
         task->sentpackets += 1;
 
         // unlock task mutex
-        if (lockError = pthread_mutex_unlock(&taskLock))
+        if ((lockError = pthread_mutex_unlock(&taskLock)))
         {
             fprintf(stderr, "Failed to unlock task mutex!\n");
         }
@@ -1005,7 +1004,7 @@ void *outputFunc(void *param)
         fprintf(stderr, "Bytes Received: %d, Packets Received: %d\n\n", task->recvbytes, task->recvpackets);
 
         // unlock thread mutex
-        if (lockError = pthread_mutex_unlock(&stdoutLock))
+        if ((lockError = pthread_mutex_unlock(&stdoutLock)))
         {
             fprintf(stderr, "Failed to unlock mutex!\n");
         }
@@ -1020,20 +1019,20 @@ void *outputFunc(void *param)
     while ((error = r_read(task->readfd, &pack, wsize)) != 0)
     {
         // lock thread mutex
-        if (lockError = pthread_mutex_lock(&stdoutLock))
+        if ((lockError = pthread_mutex_lock(&stdoutLock)))
         {
             fprintf(stderr, "Failed to lock mutex!\n");
             continue;
         }
         // lock task mutex
-        if (lockError = pthread_mutex_lock(&taskLock))
+        if ((lockError = pthread_mutex_lock(&taskLock)))
         {
             fprintf(stderr, "Failed to lock task mutex!\n");
             continue;
         }
         task->mlock = stdoutLock; // save thread mutex
         // unlock task mutex
-        if (lockError = pthread_mutex_unlock(&taskLock))
+        if ((lockError = pthread_mutex_unlock(&taskLock)))
         {
             fprintf(stderr, "Failed to unlock task mutex!\n");
             // continue;
@@ -1051,7 +1050,7 @@ void *outputFunc(void *param)
             if (pack.length == 0)
             {
                 // unlock thread mutex
-                if (lockError = pthread_mutex_unlock(&stdoutLock))
+                if ((lockError = pthread_mutex_unlock(&stdoutLock)))
                 {
                     fprintf(stderr, "Failed to unlock mutex!\n");
                 }
@@ -1063,7 +1062,7 @@ void *outputFunc(void *param)
                 fprintf(stderr, "Failed to putpacket!\n");
 
                 // unlock thread mutex
-                if (lockError = pthread_mutex_unlock(&stdoutLock))
+                if ((lockError = pthread_mutex_unlock(&stdoutLock)))
                 {
                     fprintf(stderr, "Failed to unlock mutex!\n");
                 }
@@ -1072,7 +1071,7 @@ void *outputFunc(void *param)
             }
             
             // lock task mutex
-            if (lockError = pthread_mutex_lock(&taskLock))
+            if ((lockError = pthread_mutex_lock(&taskLock)))
             {
                 fprintf(stderr, "Failed to lock task mutex!\n");
                 continue;
@@ -1083,7 +1082,7 @@ void *outputFunc(void *param)
             task->sentpackets += 1;
 
             // unlock task mutex
-            if (lockError = pthread_mutex_unlock(&taskLock))
+            if ((lockError = pthread_mutex_unlock(&taskLock)))
             {
                 fprintf(stderr, "Failed to unlock task mutex!\n");
             }
@@ -1097,7 +1096,7 @@ void *outputFunc(void *param)
             if (pack.length != 0)
             {
                 // unlock thread mutex
-                if (lockError = pthread_mutex_unlock(&stdoutLock))
+                if ((lockError = pthread_mutex_unlock(&stdoutLock)))
                 {
                     fprintf(stderr, "Failed to unlock mutex!\n");
                 }
@@ -1105,7 +1104,7 @@ void *outputFunc(void *param)
             }
 
             // lock task mutex
-            if (lockError = pthread_mutex_lock(&taskLock))
+            if ((lockError = pthread_mutex_lock(&taskLock)))
             {
                 fprintf(stderr, "Failed to lock task mutex!\n");
                 continue;
@@ -1134,7 +1133,7 @@ void *outputFunc(void *param)
             }
 
             // unlock task mutex
-            if (lockError = pthread_mutex_unlock(&taskLock))
+            if ((lockError = pthread_mutex_unlock(&taskLock)))
             {
                 fprintf(stderr, "Failed to unlock task mutex!\n");
             }
@@ -1148,7 +1147,7 @@ void *outputFunc(void *param)
                 fprintf(stderr, "Failed to putpacket!\n");
             }
             // unlock stdout mutex
-            if (lockError = pthread_mutex_unlock(&stdoutLock))
+            if ((lockError = pthread_mutex_unlock(&stdoutLock)))
             {
                 fprintf(stderr, "Failed to unlock mutex!\n");
             }
@@ -1170,7 +1169,7 @@ void *outputFunc(void *param)
                 sigprocmask(SIG_SETMASK, &maskold, NULL);
             }
 
-            if (lockError = pthread_mutex_lock(&stdoutLock))
+            if ((lockError = pthread_mutex_lock(&stdoutLock)))
             {
                 fprintf(stderr, "Failed to lock mutex!\n");
                 continue;
@@ -1185,14 +1184,14 @@ void *outputFunc(void *param)
         fprintf(stderr, "Bytes Received: %d, Packets Received: %d\n", task->recvbytes, task->recvpackets);
 
         // unlock thread mutex
-        if (lockError = pthread_mutex_unlock(&stdoutLock))
+        if ((lockError = pthread_mutex_unlock(&stdoutLock)))
         {
             fprintf(stderr, "Failed to unlock mutex!\n");
         }
         // task->mlock = NULL; // remove thread mutex
     }
     // lock task mutex
-    if (lockError = pthread_mutex_lock(&taskLock))
+    if ((lockError = pthread_mutex_lock(&taskLock)))
     {
         fprintf(stderr, "Failed to lock task mutex!\n");
         return NULL;
@@ -1211,7 +1210,7 @@ void *outputFunc(void *param)
     
     
     // unlock task mutex
-    if (lockError = pthread_mutex_unlock(&taskLock))
+    if ((lockError = pthread_mutex_unlock(&taskLock)))
     {
         fprintf(stderr, "Failed to unlock task mutex!\n");
     }
@@ -1226,7 +1225,7 @@ void *outputFunc(void *param)
     task->mlock = stdoutLock; // save thread mutex
 
     // lock thread mutex
-    if (lockError = pthread_mutex_lock(&stdoutLock))
+    if ((lockError = pthread_mutex_lock(&stdoutLock)))
     {
         fprintf(stderr, "Failed to lock mutex!\n");
         return NULL;
@@ -1248,7 +1247,7 @@ void *outputFunc(void *param)
     fprintf(stderr, "Bytes Received: %d, Packets Received: %d\n", task->recvbytes, task->recvpackets);
 
     // unlock thread mutex
-    if (lockError = pthread_mutex_unlock(&stdoutLock))
+    if ((lockError = pthread_mutex_unlock(&stdoutLock)))
     {
         fprintf(stderr, "Failed to unlock mutex!\n");
         return NULL;

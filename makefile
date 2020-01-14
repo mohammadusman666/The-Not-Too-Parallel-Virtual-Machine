@@ -1,4 +1,4 @@
-FLAGS = -pthread
+FLAGS = -pthread -Werror -Wall
 
 all: ntpvm
 

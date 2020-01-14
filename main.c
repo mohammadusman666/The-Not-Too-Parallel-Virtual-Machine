@@ -825,16 +825,6 @@ void *inputFunc(void *param)
                     }
                     else // if all tasks are not waiting for barrier number
                     {
-                        if (putpacket(writefdarray[result], compid, taskid, type, tdatalen, buf) == -1) // 4th argument (1 = DATA)
-                        {
-                            // unlock task mutex
-                            if ((lockError = pthread_mutex_unlock(&taskLock)))
-                            {
-                                fprintf(stderr, "Failed to unlock task mutex!\n");
-                            }
-
-                            continue;
-                        }
 
                         // set this task's barrier number
                         tasksarray->tasks[result]->barrier = barrierNum;
@@ -878,10 +868,17 @@ void *inputFunc(void *param)
                                 continue;
                             }
 
-                            if (putpacket(tout, compid, taskid, type, tdatalen, buf) == -1)
+                            if (putpacket(writefdarray[result], compid, taskid, type, tdatalen, buf) == -1) // 4th argument (5 = BARRIER)
                             {
-                                fprintf(stderr, "Failed to putpacket!\n");
+                                // unlock task mutex
+                                if ((lockError = pthread_mutex_unlock(&taskLock)))
+                                {
+                                    fprintf(stderr, "Failed to unlock task mutex!\n");
+                                }
+
+                                continue;
                             }
+
                             // unlock stdout mutex
                             if ((lockError = pthread_mutex_unlock(&stdoutLock)))
                             {

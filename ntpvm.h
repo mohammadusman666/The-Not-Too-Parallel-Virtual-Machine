@@ -1,3 +1,17 @@
+/***************
+
+Group Members:
+Mohammad Usman (20-10558)
+Muhammad Omer Khalil (20-10671)
+
+Course:
+CSCS440 Systems Programming
+
+Term:
+Fall 2019
+
+***************/
+
 #include <pthread.h>
 #include <sys/types.h>
 #define MAX_PACK_SIZE 1024
